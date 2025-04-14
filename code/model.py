@@ -341,12 +341,9 @@ class LMFusion(nn.Module):
         
     def generate_image(self, input_ids, attention_mask=None, steps=50):
         batch_size = input_ids.shape[0]
-        
         img_z = torch.randn(batch_size, 4, 16, 16, device=input_ids.device)
-        
         for i in range(steps-1, -1, -1):
             t = torch.ones(batch_size, device=input_ids.device) * i / steps
-            
             text_hidden_states = self.embed_tokens(input_ids)
             img_hidden_states = self.unet_down(img_z, t)
             
@@ -358,17 +355,14 @@ class LMFusion(nn.Module):
                 )
             
             pred_noise = self.unet_up(img_hidden_states, t, img_z)
-            
             alpha = torch.cos(torch.tensor(i / steps, device=input_ids.device) * math.pi/2) ** 2
             alpha_next = torch.cos(torch.tensor((i-1) / steps, device=input_ids.device) * math.pi/2) ** 2 if i > 0 else torch.ones_like(alpha)
-            
             img_z = (img_z - (1 - alpha).sqrt() * pred_noise) / alpha.sqrt()
             
             if i > 0:
                 noise = torch.randn_like(img_z)
                 sigma = ((1 - alpha_next) / (1 - alpha)).sqrt() * (1 - alpha/alpha_next).sqrt()
                 img_z = alpha_next.sqrt() * img_z + (1 - alpha_next - sigma**2).sqrt() * pred_noise + sigma * noise
-        
         generated_image = self.vae.decode(img_z)
         
         return generated_image
@@ -444,7 +438,7 @@ def lmfusion_dry_run(batch_size=2, num_steps=3, tiny_model=True):
     dataset = MockLMFusionDataset(num_samples=batch_size*num_steps, seq_length=16)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
-    print("Initializing LMFusion model with random weights...")
+    print("Initializing LMFusion model with random weights")
     
     if tiny_model:
         hidden_size = 32
@@ -470,29 +464,22 @@ def lmfusion_dry_run(batch_size=2, num_steps=3, tiny_model=True):
         
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Model initialized with {total_params:,} trainable parameters")
-        
         model = model.to(device)
-        
         loss_fn = LMFusionLoss()
-        
         optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
-        
-        print("\nPerforming forward and backward passes...")
+        print("\nPerforming forward and backward passes")
         for step, batch in enumerate(tqdm(dataloader, total=num_steps)):
             if step >= num_steps:
                 break
                 
             batch = {k: v.to(device) for k, v in batch.items()}
-            
             outputs = model(
                 input_ids=batch["input_ids"],
                 images=batch["image"],
                 t=batch["t"],
                 attention_mask=batch["attention_mask"]
             )
-            
             losses = loss_fn(outputs, batch)
-            
             print(f"\nStep {step+1}/{num_steps} Losses:")
             for loss_name, loss_val in losses.items():
                 print(f"  {loss_name}: {loss_val.item():.4f}")
@@ -505,22 +492,19 @@ def lmfusion_dry_run(batch_size=2, num_steps=3, tiny_model=True):
         model.eval()
         with torch.no_grad():
             input_ids = batch["input_ids"][:1]
-            
             gen_outputs = model(input_ids=input_ids, generation_mode=True)
-            
             print(f"Generation output keys: {list(gen_outputs.keys())}")
             if "logits" in gen_outputs:
                 print(f"Logits shape: {gen_outputs['logits'].shape}")
         
-        print("\n✅ All tests passed! LMFusion model is working correctly.")
+        print("\n All tests passed! LMFusion model is working correctly.")
         return True
     
     except Exception as e:
-        print(f"\n❌ Test failed with error: {str(e)}")
+        print(f"\n Test failed with error: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
 
 if __name__ == "__main__":
     lmfusion_dry_run(batch_size=2, num_steps=3, tiny_model=True)
-
